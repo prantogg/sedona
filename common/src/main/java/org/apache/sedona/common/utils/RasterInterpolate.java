@@ -1,13 +1,16 @@
 package org.apache.sedona.common.utils;
 
+import org.geotools.coverage.GridSampleDimension;
 import org.geotools.coverage.grid.GridCoverage2D;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.index.strtree.STRtree;
+import org.apache.commons.math3.linear.*;
 
 import java.awt.image.Raster;
+import java.awt.image.WritableRaster;
 import java.util.*;
 
 public class RasterInterpolate {
@@ -70,7 +73,8 @@ public class RasterInterpolate {
                 }
                 radius *= 1.5; // Increase radius by 50%
             } while (true);
-
+//            System.out.println("\nFor ("+x+" "+y+") -");
+//            printQueryResult(queryResult);
             for (RasterPoint rasterPoint : queryResult) {
                 Point point = rasterPoint.getPoint();
                 double distance = point.distance(geometryFactory.createPoint(new Coordinate(x, y)));
@@ -98,6 +102,71 @@ public class RasterInterpolate {
         return interpolatedValue;
     }
 
+    public static void printQueryResult(List<RasterPoint> list) {
+        String res = "";
+        for (RasterPoint rasterPoint : list) {
+            res += rasterPoint.getPoint().toString() + ", ";
+        }
+        System.out.println(res);
+    }
+
+    public static GridCoverage2D interpolateSpline(GridCoverage2D inputRaster, Integer band) throws IllegalArgumentException {
+        // Extract valid points from raster data
+        List<RasterPoint> validPoints = extractValidPoints(inputRaster, band);
+        System.out.println("\nvalidPoints size: "+validPoints.size());
+        printQueryResult(validPoints);
+
+        // Initialize the spline interpolator with the valid points
+        SplineInterpolation splineInterpolation = new SplineInterpolation(validPoints, 0.5);
+
+        // Get the raster data and prepare for writing interpolated values
+        Raster rasterData = inputRaster.getRenderedImage().getData();
+        WritableRaster writableRaster = rasterData.createCompatibleWritableRaster(rasterData.getWidth(), rasterData.getHeight());
+        Double noDataValue = RasterUtils.getNoDataValue(inputRaster.getSampleDimension(band));
+
+        // Interpolate values for each point in the raster
+        for (int y = 0; y < writableRaster.getHeight(); y++) {
+            for (int x = 0; x < writableRaster.getWidth(); x++) {
+                // Check if the current raster value is a noDataValue
+                double value = rasterData.getSampleDouble(x, y, band);
+                if (Double.isNaN(value) || value == noDataValue) {
+                    // Use the spline interpolator to get the interpolated value
+                    double interpolatedValue = splineInterpolation.interpolate(x, y);
+                    // Set the interpolated value in the writable raster
+                    writableRaster.setSample(x, y, band, interpolatedValue);
+                } else {
+                    writableRaster.setSample(x, y, band, value);
+                }
+            }
+        }
+
+        // Create and return the new GridCoverage2D object with the interpolated raster
+        GridSampleDimension[] gridSampleDimensions = inputRaster.getSampleDimensions();
+        return RasterUtils.clone(writableRaster, inputRaster.getGridGeometry(), gridSampleDimensions, inputRaster, null, true);
+    }
+
+    public static List<RasterPoint> extractValidPoints(GridCoverage2D inputRaster, Integer band) {
+        List<RasterPoint> validPoints = new ArrayList<>();
+        Raster rasterData = inputRaster.getRenderedImage().getData();
+        int width = rasterData.getWidth();
+        int height = rasterData.getHeight();
+        GeometryFactory geometryFactory = new GeometryFactory();
+
+        Double noDataValue = RasterUtils.getNoDataValue(inputRaster.getSampleDimension(band));
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                double value = rasterData.getSampleDouble(x, y, band);
+                if (!Double.isNaN(value) && value != noDataValue) {
+                    Point point = geometryFactory.createPoint(new Coordinate(x, y));
+                    validPoints.add(new RasterPoint(point, value));
+                }
+            }
+        }
+//        System.out.println("validPoints size: "+validPoints.size());
+        return validPoints;
+    }
+
     public static class RasterPoint {
         private Point point; // JTS Point
         private double value; // The associated value
@@ -108,9 +177,22 @@ public class RasterInterpolate {
             this.value = value;
             this.distance = distance;
         }
+        public RasterPoint(Point point, double value) {
+            this.point = point;
+            this.value = value;
+            this.distance = 0.0;
+        }
 
         public Point getPoint() {
             return point;
+        }
+
+        public double getX() {
+            return point.getX();
+        }
+
+        public double getY() {
+            return point.getY();
         }
 
         public double getValue() {
