@@ -20,10 +20,7 @@ package org.apache.sedona.common.raster;
 
 import java.awt.image.Raster;
 import java.awt.image.WritableRaster;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
 import javax.media.jai.RasterFactory;
 import org.apache.commons.math3.stat.StatUtils;
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
@@ -399,14 +396,20 @@ public class RasterBandAccessors {
 
     StandardDeviation sd = new StandardDeviation(false);
 
-    double count = stats.getN();
-    double sum = stats.getSum();
-    double mean = stats.getMean();
-    double stddev = sd.evaluate(pixels, mean);
-    double min = stats.getMin();
-    double max = stats.getMax();
+    // order of stats
+    // count, sum, mean, median, mode, stddev, variance, min, max
+    double[] result = new double[9];
+    result[0] = stats.getN();
+    result[1] = stats.getSum();
+    result[2] = stats.getMean();
+    result[3] = stats.getPercentile(50);
+    result[4] = zonalMode(pixels);
+    result[5] = sd.evaluate(pixels, result[2]);
+    result[6] = stats.getVariance();
+    result[7] = stats.getMin();
+    result[8] = stats.getMax();
 
-    return new double[] {count, sum, mean, stddev, min, max};
+    return result;
   }
 
   public static double[] getSummaryStatsAll(GridCoverage2D raster, int band) {
